@@ -60,6 +60,7 @@ public final class ClientSnowRenderer {
         event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/side_snow_anchor"));
         event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/side_soft_anchor"));
         event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/attic_glass_snow_anchor"));
+        event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/steep_drip_anchor"));
     }
 
     @SubscribeEvent
@@ -68,16 +69,18 @@ public final class ClientSnowRenderer {
             ResourceLocation key = entry.getKey();
             if (key.getNamespace().equals("mcwroofs") && key.getPath().contains("roof")
                     && !key.getPath().endsWith("inventory")) {
-                entry.setValue(new SnowyRoofModel(entry.getValue(), key.getPath().contains("attic_roof")));
+                entry.setValue(new SnowyRoofModel(entry.getValue(), key.getPath().contains("attic_roof"), key.getPath().contains("steep_roof")));
             }
         }
     }
 
     private static final class SnowyRoofModel extends BakedModelWrapper<BakedModel> {
         private final boolean attic;
-        SnowyRoofModel(BakedModel original, boolean attic) {
+        private final boolean steep;
+        SnowyRoofModel(BakedModel original, boolean attic, boolean steep) {
             super(original);
             this.attic = attic;
+            this.steep = steep;
         }
 
         @Override
@@ -146,7 +149,16 @@ public final class ClientSnowRenderer {
                     } else result.add(quad);
                 }
             }
-            if (cutout && !attic) {
+            if (cutout && steep && !attic) {
+                // Steep 45-degree roofs: the lower edge of each sloping panel
+                // gets its own dripping fringe, rather than a thin timber stripe.
+                for (BakedQuad quad : originalQuads) {
+                    if (!isSnowSurface(quad)) continue;
+                    BakedQuad fringe = steepEaveDrip(quad, stage, variant, outward);
+                    if (fringe != null) result.add(fringe);
+                }
+            }
+            if (cutout && !attic && !steep) {
                 // Snow is only allowed along the OUTER FRONT eave. NEVER on the
                 // left/right sides, rear/interior or any attic window frame.
                 for (BakedQuad quad : originalQuads) {
@@ -160,6 +172,46 @@ public final class ClientSnowRenderer {
             // receives the normal top snow; glass only gets the thin top fringe.
 
             return result;
+        }
+
+        private static BakedQuad steepEaveDrip(BakedQuad source, int stage, int variant, Direction outward) {
+            // Follow the low end of each *real* rotated Macaw's steep surface.
+            int[] src = source.getVertices();
+            if (src.length < 32) return null;
+            float[] x = new float[4], y = new float[4], z = new float[4];
+            for (int i = 0; i < 4; i++) {
+                x[i] = Float.intBitsToFloat(src[i * 8]);
+                y[i] = Float.intBitsToFloat(src[i * 8 + 1]);
+                z[i] = Float.intBitsToFloat(src[i * 8 + 2]);
+            }
+            int a = -1, b = -1;
+            float best = Float.MAX_VALUE;
+            for (int i = 0; i < 4; i++) {
+                int j = (i + 1) % 4;
+                float dx = x[i] - x[j], dz = z[i] - z[j];
+                if ((dx * dx + dz * dz) < .22f * .22f) continue;
+                float score = y[i] + y[j] + Math.abs(y[i] - y[j]);
+                if (score < best) { best = score; a = i; b = j; }
+            }
+            if (a < 0) return null;
+
+            int[] vertices = src.clone();
+            float depth = .12f + .21f * stage / 8f;
+            float[] px = { x[a], x[b], x[b], x[a] };
+            float[] py = { y[a], y[b], y[b] - depth, y[a] - depth };
+            float[] pz = { z[a], z[b], z[b], z[a] };
+            TextureAtlasSprite snow = sprite("steep_drip_" + stage + "_v" + variant);
+            for (int i = 0; i < 4; i++) {
+                int v = i * 8;
+                vertices[v] = Float.floatToRawIntBits(px[i] + outward.getStepX() * .004f);
+                vertices[v + 1] = Float.floatToRawIntBits(py[i]);
+                vertices[v + 2] = Float.floatToRawIntBits(pz[i] + outward.getStepZ() * .004f);
+                float u = (i == 0 || i == 3) ? 0f : 1f;
+                float uv = i < 2 ? 0f : 1f;
+                vertices[v + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
+                vertices[v + 5] = Float.floatToRawIntBits(snow.getV0() + uv * (snow.getV1() - snow.getV0()));
+            }
+            return new BakedQuad(vertices, -1, outward, snow, false);
         }
 
         private static boolean isGlass(BakedQuad quad) {
