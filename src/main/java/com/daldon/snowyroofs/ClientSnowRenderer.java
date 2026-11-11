@@ -39,6 +39,7 @@ public final class ClientSnowRenderer {
     private static final ModelProperty<Integer> SNOW_LEVEL = new ModelProperty<>();
     private static final ModelProperty<Integer> SNOW_VARIANT = new ModelProperty<>();
     private static final ModelProperty<Direction> ROOF_FACING = new ModelProperty<>();
+    private static final ModelProperty<String> ROOF_PART = new ModelProperty<>();
     private static final ConcurrentMap<Long, Integer> SNOW = new ConcurrentHashMap<>();
 
     public static void acceptUpdate(BlockPos pos, int amount) {
@@ -69,7 +70,7 @@ public final class ClientSnowRenderer {
             ResourceLocation key = entry.getKey();
             if (key.getNamespace().equals("mcwroofs") && key.getPath().contains("roof")
                     && !key.getPath().endsWith("inventory")) {
-                entry.setValue(new SnowyRoofModel(entry.getValue(), key.getPath().contains("attic_roof"), key.getPath().contains("steep_roof")));
+                entry.setValue(new SnowyRoofModel(entry.getValue(), key.getPath().contains("attic_roof"), key.getPath().contains("steep_roof"), key.getPath().contains("top_roof")));
             }
         }
     }
@@ -77,10 +78,12 @@ public final class ClientSnowRenderer {
     private static final class SnowyRoofModel extends BakedModelWrapper<BakedModel> {
         private final boolean attic;
         private final boolean steep;
-        SnowyRoofModel(BakedModel original, boolean attic, boolean steep) {
+        private final boolean topRoof;
+        SnowyRoofModel(BakedModel original, boolean attic, boolean steep, boolean topRoof) {
             super(original);
             this.attic = attic;
             this.steep = steep;
+            this.topRoof = topRoof;
         }
 
         @Override
@@ -102,7 +105,17 @@ public final class ClientSnowRenderer {
                     }
                 }
             }
+            String roofPart = "";
+            if (state != null) {
+                for (var property : state.getProperties()) {
+                    if ("part".equals(property.getName())) {
+                        roofPart = String.valueOf(state.getValue(property));
+                        break;
+                    }
+                }
+            }
             return original.derive()
+                    .with(ROOF_PART, roofPart)
                     .with(SNOW_LEVEL, SNOW.getOrDefault(pos.asLong(), 0))
                     .with(SNOW_VARIANT, variant)
                     .with(ROOF_FACING, facing).build();
@@ -128,6 +141,8 @@ public final class ClientSnowRenderer {
             // Macaw's roof model climbs toward its FACING direction.
             // The visible lower eave is the OPPOSITE direction.
             Direction outward = facing.getOpposite();
+            String roofPart = data.get(ROOF_PART);
+            if (roofPart == null) roofPart = "";
 
             // Original roof geometry stays untouched. Snow on vertical sides is
             // a second cutout quad, offset slightly to prevent z-fighting.
@@ -159,11 +174,28 @@ public final class ClientSnowRenderer {
                 }
             }
             if (cutout && !attic && !steep) {
-                // Snow is only allowed along the OUTER FRONT eave. NEVER on the
-                // left/right sides, rear/interior or any attic window frame.
                 for (BakedQuad quad : originalQuads) {
                     Direction face = quad.getDirection();
-                    if (face != outward || isSnowSurface(quad) || isGlass(quad)) continue;
+                    if (!face.getAxis().isHorizontal() || isSnowSurface(quad) || isGlass(quad)) continue;
+                    if (topRoof) {
+                        // Macaw's top pieces are rotated via the PART property.
+                        // Do not put snow on the long sloped SIDES of the ridge.
+                        int rotation = topRotation(roofPart);
+                        Direction gableAxis = rotation == 90 || rotation == 270
+                                ? Direction.EAST : Direction.SOUTH;
+                        if (face.getAxis() != gableAxis.getAxis()) continue;
+                        if (roofPart.contains("end") || roofPart.contains("outer")) {
+                            Direction cap = switch (rotation) {
+                                case 90 -> Direction.WEST;
+                                case 180 -> Direction.NORTH;
+                                case 270 -> Direction.EAST;
+                                default -> Direction.SOUTH;
+                            };
+                            if (face != cap) continue;
+                        }
+                    } else if (face != outward) {
+                        continue;
+                    }
                     int edgeVariant = Math.floorMod(variant * 2 + face.ordinal() * 3, 12);
                     result.add(snowEdge(quad, stage, edgeVariant, true));
                 }
@@ -172,6 +204,13 @@ public final class ClientSnowRenderer {
             // receives the normal top snow; glass only gets the thin top fringe.
 
             return result;
+        }
+
+        private static int topRotation(String part) {
+            if (part.endsWith("_270")) return 270;
+            if (part.endsWith("_180")) return 180;
+            if (part.endsWith("_90")) return 90;
+            return 0;
         }
 
         private static BakedQuad steepEaveDrip(BakedQuad source, int stage, int variant, Direction outward) {
