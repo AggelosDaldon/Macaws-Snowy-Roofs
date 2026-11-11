@@ -1,130 +1,108 @@
 package com.daldon.snowyroofs;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.block.model.BakedQuad;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.biome.Biome;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.BlockAndTintGetter;
+import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.DirectionProperty;
 import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.minecraftforge.client.event.ModelEvent;
+import net.minecraftforge.client.model.BakedModelWrapper;
+import net.minecraftforge.client.model.data.ModelData;
+import net.minecraftforge.client.model.data.ModelProperty;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.registries.ForgeRegistries;
-import org.joml.Matrix3f;
-import org.joml.Matrix4f;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Experimental VISUAL overlay. Does not replace blocks, change world saves,
- * or add collision. Roof geometry varies by Macaw's Roofs model variant.
+ * Uses Macaw's existing baked roof geometry, replacing only upward-facing quad sprites
+ * with snowy roof textures in cold climates. No second mesh or floating snow planes.
  */
-@Mod.EventBusSubscriber(modid = SnowyRoofs.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
+@Mod.EventBusSubscriber(modid = SnowyRoofs.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public final class ClientSnowRenderer {
-    private static final int HORIZONTAL_RADIUS = 16;
-    private static final int VERTICAL_RADIUS = 9;
-    private static final List<Roof> ROOFS = new ArrayList<>();
-    private static BlockPos lastCameraBlock = BlockPos.ZERO;
-    private static long nextScan = 0L;
-    private static Level lastLevel;
-
-    private record Roof(BlockPos pos, Direction facing, float low, float high) {}
+    private static final ModelProperty<Boolean> HAS_SNOW = new ModelProperty<>();
 
     @SubscribeEvent
-    public static void render(RenderLevelStageEvent event) {
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_CUTOUT_BLOCKS) return;
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null) return;
-        Level level = mc.level;
-        BlockPos cameraBlock = BlockPos.containing(event.getCamera().getPosition());
-        long now = level.getGameTime();
-        if (lastLevel != level || now >= nextScan || cameraBlock.distManhattan(lastCameraBlock) > 4) {
-            findRoofs(level, cameraBlock);
-            lastLevel = level;
-            lastCameraBlock = cameraBlock;
-            nextScan = now + 30;
+    public static void registerSnowModels(ModelEvent.RegisterAdditional event) {
+        for (String name : new String[]{"base_roof", "white_roof", "black_roof", "gray_roof", "light_gray_roof", "thatch", "snow_generic"}) {
+            event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + name + "_snow_anchor"));
         }
-        if (ROOFS.isEmpty()) return;
-
-        // Snow uses Minecraft's texture atlas (honours resource packs).
-        TextureAtlasSprite sprite = mc.getTextureAtlas(TextureAtlas.LOCATION_BLOCKS)
-                .apply(new ResourceLocation("minecraft", "block/snow"));
-        PoseStack stack = event.getPoseStack();
-        var camera = event.getCamera().getPosition();
-        VertexConsumer out = mc.renderBuffers().bufferSource().getBuffer(RenderType.cutout());
-        for (Roof roof : ROOFS) {
-            stack.pushPose();
-            stack.translate(roof.pos.getX() - camera.x, roof.pos.getY() - camera.y, roof.pos.getZ() - camera.z);
-            float angle = switch (roof.facing) {
-                case SOUTH -> 180f;
-                case WEST -> 90f;
-                case EAST -> 270f;
-                default -> 0f;
-            };
-            stack.translate(.5, 0, .5);
-            stack.mulPose(Axis.YP.rotationDegrees(angle));
-            stack.translate(-.5, 0, -.5);
-            drawSlope(stack, out, sprite, roof.low, roof.high);
-            stack.popPose();
-        }
-        mc.renderBuffers().bufferSource().endBatch(RenderType.cutout());
     }
 
-    private static void findRoofs(Level level, BlockPos center) {
-        ROOFS.clear();
-        BlockPos.MutableBlockPos p = new BlockPos.MutableBlockPos();
-        for (int x = -HORIZONTAL_RADIUS; x <= HORIZONTAL_RADIUS; x++) {
-            for (int z = -HORIZONTAL_RADIUS; z <= HORIZONTAL_RADIUS; z++) {
-                for (int y = -VERTICAL_RADIUS; y <= VERTICAL_RADIUS; y++) {
-                    p.set(center.getX() + x, center.getY() + y, center.getZ() + z);
-                    if (!level.hasChunkAt(p) || !level.isEmptyBlock(p.above())) continue;
-                    BlockState state = level.getBlockState(p);
-                    ResourceLocation id = ForgeRegistries.BLOCKS.getKey(state.getBlock());
-                    if (id == null || !id.getNamespace().equals("mcwroofs") || !id.getPath().contains("roof")) continue;
-                    if (!level.canSeeSky(p.above())) continue;
-                    Biome biome = level.getBiome(p).value();
-                    if (biome.getPrecipitationAt(p) != Biome.Precipitation.SNOW || !biome.coldEnoughToSnow(p)) continue;
-                    String name = id.getPath();
-                    Direction facing = Direction.NORTH;
-                    for (var property : state.getProperties()) {
-                        if (property instanceof DirectionProperty dp) {
-                            Direction d = state.getValue(dp);
-                            if (d.getAxis().isHorizontal()) { facing = d; break; }
-                        }
-                    }
-                    // Approximate roof pitches: configurable here for future model-specific corrections.
-                    float low = name.contains("steep") ? 0.04f : name.contains("lower") ? 0.27f : 0.08f;
-                    float high = name.contains("steep") ? 1.025f : name.contains("lower") ? 0.78f : 0.985f;
-                    if (name.contains("top") || name.contains("attic")) { low = .83f; high = 1.015f; }
-                    ROOFS.add(new Roof(p.immutable(), facing, low, high));
-                }
+    @SubscribeEvent
+    public static void onModelBake(ModelEvent.ModifyBakingResult event) {
+        for (Map.Entry<ResourceLocation, BakedModel> entry : event.getModels().entrySet()) {
+            ResourceLocation key = entry.getKey();
+            if (key.getNamespace().equals("mcwroofs") && key.getPath().contains("roof")
+                    && !key.getPath().endsWith("inventory")) {
+                entry.setValue(new SnowyRoofModel(entry.getValue()));
             }
         }
     }
 
-    private static void drawSlope(PoseStack stack, VertexConsumer out, TextureAtlasSprite sprite, float low, float high) {
-        Matrix4f pose = stack.last().pose();
-        Matrix3f normal = stack.last().normal();
-        float a = sprite.getU0(), b = sprite.getU1(), c = sprite.getV0(), d = sprite.getV1();
-        // 2 mm model offset to avoid z-fighting, visually snow follows a slanted roof.
-        vertex(out, pose, normal, 0, low + .012f, 0, a, d);
-        vertex(out, pose, normal, 0, high + .012f, 1, a, c);
-        vertex(out, pose, normal, 1, high + .012f, 1, b, c);
-        vertex(out, pose, normal, 1, low + .012f, 0, b, d);
-    }
+    private static final class SnowyRoofModel extends BakedModelWrapper<BakedModel> {
+        SnowyRoofModel(BakedModel original) { super(original); }
 
-    private static void vertex(VertexConsumer out, Matrix4f pose, Matrix3f normal, float x, float y, float z, float u, float v) {
-        out.vertex(pose, x, y, z).color(255, 255, 255, 255).uv(u, v)
-                .overlayCoords(0).uv2(0xF000F0).normal(normal, 0, 1, 0).endVertex();
+        @Override
+        public ModelData getModelData(BlockAndTintGetter world, BlockPos pos, BlockState state, ModelData existing) {
+            ModelData original = super.getModelData(world, pos, state, existing);
+            BlockState above = world.getBlockState(pos.above());
+            boolean exposed = above.isAir() || above.is(Blocks.SNOW) || above.is(Blocks.SNOW_BLOCK);
+            boolean snowBlock = above.is(Blocks.SNOW) || above.is(Blocks.SNOW_BLOCK);
+            boolean cold = (world instanceof LevelReader reader)
+                    ? reader.getBiome(pos).value().coldEnoughToSnow(pos)
+                    : Minecraft.getInstance().level != null && Minecraft.getInstance().level.getBiome(pos).value().coldEnoughToSnow(pos);
+            return original.derive().with(HAS_SNOW, exposed && (snowBlock || cold)).build();
+        }
+
+        @Override
+        public List<BakedQuad> getQuads(@Nullable BlockState state, @Nullable Direction side,
+                RandomSource random, ModelData data, @Nullable RenderType renderType) {
+            List<BakedQuad> quads = super.getQuads(state, side, random, data, renderType);
+            if (!Boolean.TRUE.equals(data.get(HAS_SNOW)) || quads.isEmpty()) return quads;
+            List<BakedQuad> result = new ArrayList<>(quads.size());
+            for (BakedQuad quad : quads) {
+                if (quad.getDirection() != Direction.UP) {
+                    result.add(quad);
+                    continue;
+                }
+                TextureAtlasSprite oldSprite = quad.getSprite();
+                ResourceLocation oldName = oldSprite.contents().name();
+                String material = oldName.getNamespace().equals("mcwroofs") && oldName.getPath().startsWith("block/")
+                        ? oldName.getPath().substring(6) : "snow_generic";
+                if (!material.equals("base_roof") && !material.equals("white_roof")
+                        && !material.equals("black_roof") && !material.equals("gray_roof")
+                        && !material.equals("light_gray_roof") && !material.equals("thatch")) {
+                    material = "snow_generic";
+                }
+                TextureAtlasSprite snow = Minecraft.getInstance().getTextureAtlas(TextureAtlas.LOCATION_BLOCKS)
+                        .apply(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + material + "_snow"));
+                int[] vertices = quad.getVertices().clone();
+                for (int corner = 0; corner < 4; corner++) {
+                    int i = corner * 8;
+                    float u = Float.intBitsToFloat(vertices[i + 4]);
+                    float v = Float.intBitsToFloat(vertices[i + 5]);
+                    float fu = (u - oldSprite.getU0()) / (oldSprite.getU1() - oldSprite.getU0());
+                    float fv = (v - oldSprite.getV0()) / (oldSprite.getV1() - oldSprite.getV0());
+                    vertices[i + 4] = Float.floatToRawIntBits(snow.getU0() + fu * (snow.getU1() - snow.getU0()));
+                    vertices[i + 5] = Float.floatToRawIntBits(snow.getV0() + fv * (snow.getV1() - snow.getV0()));
+                }
+                result.add(new BakedQuad(vertices, quad.getTintIndex(), quad.getDirection(), snow, quad.isShade()));
+            }
+            return result;
+        }
     }
 }
