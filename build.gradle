@@ -4,7 +4,7 @@ plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
-version = '1.4.0'
+version = '1.6.0'
 group = 'com.daldon.snowyroofs'
 base { archivesName = 'daldons-snowy-roofs' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -88,6 +88,35 @@ tasks.register('generateSnowTextures') {
                     javax.imageio.ImageIO.write(image, 'png',
                         new File(directory, name + '_snow_' + stage + '_v' + variant + '.png'))
                 }
+            }
+        }
+
+        // Transparent overlay textures for roof edges. Existing wood/stone remains visible.
+        // Twelve silhouettes, changing gradually across 8 snow stages.
+        for (int variant = 0; variant < 12; variant++) {
+            for (int stage = 1; stage <= 8; stage++) {
+                def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                for (int x = 0; x < 16; x++) {
+                    int drift = Math.floorMod((x.intdiv(3) * 17 + variant * 13 + x * 5), 7) - 3
+                    int thickness = Math.max(1, Math.min(7, (stage + 2).intdiv(2) + drift.intdiv(2)))
+                    int iceColumn = Math.floorMod(variant * 11 + 3, 16)
+                    int secondIce = Math.floorMod(variant * 7 + 9, 16)
+                    if (stage >= 5 && x == iceColumn) thickness += 2 + variant % 3
+                    if (stage >= 7 && x == secondIce) thickness += 2
+                    for (int y = 0; y < 16; y++) {
+                        if (y >= thickness) continue
+                        int cluster = Math.floorMod(x * 23 + y.intdiv(2) * 13 + variant * 31, 17)
+                        int shade = cluster < 4 ? -18 : cluster < 9 ? -9 : 0
+                        int r = Math.max(0, Math.min(255, 247 + shade))
+                        int g = Math.max(0, Math.min(255, 250 + shade))
+                        int b = Math.max(0, Math.min(255, 255 + shade.intdiv(2)))
+                        boolean ice = y >= thickness - 2 && (x == iceColumn || x == secondIce)
+                        if (ice) { r = 185 + variant * 3; g = 225 + variant; b = 255; }
+                        image.setRGB(x, y, (255 << 24) | (r << 16) | (g << 8) | b)
+                    }
+                }
+                javax.imageio.ImageIO.write(image, 'png',
+                    new File(directory, 'side_snow_' + stage + '_v' + variant + '.png'))
             }
         }
     }
