@@ -59,6 +59,7 @@ public final class ClientSnowRenderer {
         }
         event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/side_snow_anchor"));
         event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/side_soft_anchor"));
+        event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/attic_glass_snow_anchor"));
     }
 
     @SubscribeEvent
@@ -67,13 +68,17 @@ public final class ClientSnowRenderer {
             ResourceLocation key = entry.getKey();
             if (key.getNamespace().equals("mcwroofs") && key.getPath().contains("roof")
                     && !key.getPath().endsWith("inventory")) {
-                entry.setValue(new SnowyRoofModel(entry.getValue()));
+                entry.setValue(new SnowyRoofModel(entry.getValue(), key.getPath().contains("attic_roof")));
             }
         }
     }
 
     private static final class SnowyRoofModel extends BakedModelWrapper<BakedModel> {
-        SnowyRoofModel(BakedModel original) { super(original); }
+        private final boolean attic;
+        SnowyRoofModel(BakedModel original, boolean attic) {
+            super(original);
+            this.attic = attic;
+        }
 
         @Override
         public ModelData getModelData(BlockAndTintGetter world, BlockPos pos, BlockState state, ModelData existing) {
@@ -127,8 +132,15 @@ public final class ClientSnowRenderer {
             List<BakedQuad> result = new ArrayList<>();
             if (!cutout || originalCutout) {
                 for (BakedQuad quad : originalQuads) {
-                    if (isSnowSurface(quad)) result.add(snowTop(quad, stage, variant));
-                    else result.add(quad);
+                    if (attic && isGlass(quad)) {
+                        // Keep the transparent glazing fully intact: only an upper fringe.
+                        result.add(quad);
+                        if (cutout && isSnowSurface(quad)) {
+                            result.add(atticGlassFringe(quad, stage, variant));
+                        }
+                    } else if (isSnowSurface(quad)) {
+                        result.add(snowTop(quad, stage, variant));
+                    } else result.add(quad);
                 }
             }
             if (cutout) {
@@ -142,6 +154,7 @@ public final class ClientSnowRenderer {
                 for (BakedQuad quad : originalQuads) {
                     Direction face = quad.getDirection();
                     if (!face.getAxis().isHorizontal() || isSnowSurface(quad)) continue;
+                    if (attic && isGlass(quad)) continue;
                     if (face == outward.getOpposite()) continue;
                     boolean front = face == outward;
                     if (!front && highest - highestY(quad) > .15f) continue;
@@ -150,6 +163,41 @@ public final class ClientSnowRenderer {
                 }
             }
             return result;
+        }
+
+        private static boolean isGlass(BakedQuad quad) {
+            ResourceLocation texture = quad.getSprite().contents().name();
+            String path = texture.getPath();
+            return path.equals("block/glass") || path.contains("glass") || path.contains("window");
+        }
+
+        private static BakedQuad atticGlassFringe(BakedQuad quad, int stage, int variant) {
+            TextureAtlasSprite snow = sprite("attic_glass_snow_" + stage + "_v" + variant);
+            int[] vertices = quad.getVertices().clone();
+            float high = highestY(quad);
+            float lowZ = Float.MAX_VALUE, highZ = -Float.MAX_VALUE;
+            float lowX = Float.MAX_VALUE, highX = -Float.MAX_VALUE;
+            for (int n = 0; n < 4; n++) {
+                float x = Float.intBitsToFloat(vertices[n * 8]);
+                float z = Float.intBitsToFloat(vertices[n * 8 + 2]);
+                lowX = Math.min(lowX, x); highX = Math.max(highX, x);
+                lowZ = Math.min(lowZ, z); highZ = Math.max(highZ, z);
+            }
+            boolean alongZ = highZ - lowZ > highX - lowX;
+            for (int n = 0; n < 4; n++) {
+                int at = n * 8;
+                float x = Float.intBitsToFloat(vertices[at]);
+                float y = Float.intBitsToFloat(vertices[at + 1]);
+                float z = Float.intBitsToFloat(vertices[at + 2]);
+                // Sit slightly above glass without replacing its texture or transparency.
+                vertices[at + 1] = Float.floatToRawIntBits(y + .0025f);
+                float u = alongZ ? (z - lowZ) / Math.max(.001f, highZ - lowZ)
+                        : (x - lowX) / Math.max(.001f, highX - lowX);
+                float v = Math.min(1f, Math.max(0f, (high - y) / .75f));
+                vertices[at + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
+                vertices[at + 5] = Float.floatToRawIntBits(snow.getV0() + v * (snow.getV1() - snow.getV0()));
+            }
+            return new BakedQuad(vertices, -1, quad.getDirection(), snow, false);
         }
 
         private static boolean isSnowSurface(BakedQuad quad) {
