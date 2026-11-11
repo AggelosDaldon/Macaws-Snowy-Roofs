@@ -146,27 +146,19 @@ public final class ClientSnowRenderer {
                     } else result.add(quad);
                 }
             }
-            if (cutout) {
-                // The rear faces the room/interior: leave it completely clean.
-                // Side faces receive only a small upper fringe, never stacked stripes.
-                float highest = -Float.MAX_VALUE;
-                for (BakedQuad quad : originalQuads) {
-                    if (!quad.getDirection().getAxis().isHorizontal() || isSnowSurface(quad)) continue;
-                    highest = Math.max(highest, highestY(quad));
-                }
+            if (cutout && !attic) {
+                // Snow is only allowed along the OUTER FRONT eave. NEVER on the
+                // left/right sides, rear/interior or any attic window frame.
                 for (BakedQuad quad : originalQuads) {
                     Direction face = quad.getDirection();
-                    if (!face.getAxis().isHorizontal() || isSnowSurface(quad)) continue;
-                    if (attic && isGlass(quad)) continue;
-                    if (face == outward.getOpposite()) continue;
-                    boolean front = face == outward;
-                    // Follow each actual inclined side element, instead of only
-                    // painting the one highest face of the whole block.
-                    if (!front && highestY(quad) < .20f) continue;
-                    int sideVariant = Math.floorMod(variant * 2 + face.ordinal() * 3, 12);
-                    result.add(snowEdge(quad, stage, sideVariant, front));
+                    if (face != outward || isSnowSurface(quad) || isGlass(quad)) continue;
+                    int edgeVariant = Math.floorMod(variant * 2 + face.ordinal() * 3, 12);
+                    result.add(snowEdge(quad, stage, edgeVariant, true));
                 }
             }
+            // Attic blocks never use side/front overlays. Their upper frame
+            // receives the normal top snow; glass only gets the thin top fringe.
+
             return result;
         }
 
@@ -206,11 +198,31 @@ public final class ClientSnowRenderer {
         }
 
         private static boolean isSnowSurface(BakedQuad quad) {
-            if (quad.getDirection() == Direction.UP) return true;
+            // Compute the face normal from baked vertex geometry instead of the
+            // Minecraft-facing enum (which may be horizontal on rotated attic
+            // models). This remains correct for all four horizontal rotations.
             int[] data = quad.getVertices();
-            int packedNormal = data.length >= 8 ? data[7] : 0;
-            int normalY = (byte) ((packedNormal >> 8) & 255);
-            return normalY > 18;
+            if (data.length < 32 || quad.getDirection() == Direction.DOWN) return false;
+            float x0 = Float.intBitsToFloat(data[0]);
+            float y0 = Float.intBitsToFloat(data[1]);
+            float z0 = Float.intBitsToFloat(data[2]);
+            float x1 = Float.intBitsToFloat(data[8]);
+            float y1 = Float.intBitsToFloat(data[9]);
+            float z1 = Float.intBitsToFloat(data[10]);
+            float x2 = Float.intBitsToFloat(data[16]);
+            float y2 = Float.intBitsToFloat(data[17]);
+            float z2 = Float.intBitsToFloat(data[18]);
+            float ax = x1 - x0, ay = y1 - y0, az = z1 - z0;
+            float bx = x2 - x0, by = y2 - y0, bz = z2 - z0;
+            float nx = ay * bz - az * by;
+            float ny = az * bx - ax * bz;
+            float nz = ax * by - ay * bx;
+            float size = (float)Math.sqrt(nx * nx + ny * ny + nz * nz);
+            if (size < 0.000001f) return quad.getDirection() == Direction.UP;
+            float geometricUp = ny / size;
+            if (geometricUp > 0.12f) return true;
+            if (geometricUp < -0.12f) return false;
+            return quad.getDirection() == Direction.UP;
         }
 
         private static TextureAtlasSprite sprite(String name) {
