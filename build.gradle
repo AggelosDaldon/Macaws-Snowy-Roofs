@@ -4,7 +4,7 @@ plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
-version = '1.7.0'
+version = '1.8.0'
 group = 'com.daldon.snowyroofs'
 base { archivesName = 'daldons-snowy-roofs' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -88,6 +88,33 @@ tasks.register('generateSnowTextures') {
                     javax.imageio.ImageIO.write(image, 'png',
                         new File(directory, name + '_snow_' + stage + '_v' + variant + '.png'))
                 }
+            }
+        }
+
+        // Attic windows: thin irregular snow at the TOP of the glass only.
+        // The rest of every pixel remains transparent, so the glass is visible.
+        for (int variant = 0; variant < 6; variant++) {
+            for (int stage = 1; stage <= 8; stage++) {
+                def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                for (int x = 0; x < 16; x++) {
+                    int noise = Math.floorMod(x.intdiv(3) * 11 + x * 3 + variant * 17, 7)
+                    int depth = Math.max(1, Math.min(4, 1 + stage.intdiv(4) + (noise == 0 ? 1 : 0)))
+                    int drip = Math.floorMod(variant * 5 + 3, 16)
+                    if (stage >= 6 && x == drip) depth += 2
+                    for (int y = 0; y < Math.min(16, depth); y++) {
+                        int shade = Math.floorMod(x * 13 + y * 7 + variant * 19, 11) < 3 ? -13 : -3
+                        boolean blueIce = x == drip && y >= depth - 2
+                        int red = blueIce ? 194 : 249 + shade
+                        int green = blueIce ? 233 : 251 + shade
+                        int blue = blueIce ? 255 : 255 + shade.intdiv(3)
+                        red = Math.max(0, Math.min(255, red))
+                        green = Math.max(0, Math.min(255, green))
+                        blue = Math.max(0, Math.min(255, blue))
+                        image.setRGB(x, y, (255 << 24) | (red << 16) | (green << 8) | blue)
+                    }
+                }
+                javax.imageio.ImageIO.write(image, 'png',
+                    new File(directory, 'attic_glass_snow_' + stage + '_v' + variant + '.png'))
             }
         }
 
