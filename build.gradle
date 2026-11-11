@@ -4,7 +4,7 @@ plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
-version = '1.3.0'
+version = '1.4.0'
 group = 'com.daldon.snowyroofs'
 base { archivesName = 'daldons-snowy-roofs' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -41,41 +41,43 @@ tasks.register('generateSnowTextures') {
             snow_generic: [225, 231, 240]
         ]
         types.each { name, base ->
-            for (int variant = 0; variant < 5; variant++) {
+            for (int variant = 0; variant < 6; variant++) {
                 for (int stage = 1; stage <= 8; stage++) {
                     def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
                     def rng = new java.util.Random(name.hashCode() * 31L + variant * 811L + 857L)
                     for (int y = 0; y < 16; y++) {
                         for (int x = 0; x < 16; x++) {
-                            // Snow keeps its smooth white appearance; tiny pixel clusters,
-                            // curved powder ridges, fine shadows and rare ice create visible structure.
-                            double ridge = Math.sin((x + variant * 5) * 0.49 + y * 0.18) * 0.14
-                            double drift = Math.cos((y - variant * 3) * 0.43 - x * 0.16) * 0.12
-                            double local = ((Math.floorMod(x * 13 + y * 23 + x * y * 3 + variant * 17, 41) / 40.0) - .5) * .08
-                            double density = Math.max(0, Math.min(1,
-                                (stage - 1) / 7.0 + 0.15 + ridge + drift + local))
-                            double cover = density * density * (3 - 2 * density)
-                            if (stage == 8) cover = 1.0
+                            // Crisp pixel clusters with high contrast; no blur or antialiasing.
+                            // Each variant has a unique ridge, packed snowgrain and ice pattern.
+                            int grainTile = Math.floorMod((x / 2) * 11 + (y / 2) * 17 + variant * 23 + name.hashCode(), 13);
+                            int ridgeTile = Math.floorMod(x * 3 + y * 2 + variant * 7, 17);
+                            int patch = Math.floorMod((x / 3) * 19 + (y / 3) * 29 + variant * 11, 23);
+                            double density = Math.max(0.0, Math.min(1.0, (stage - 1) / 7.0 + 0.18
+                                + (patch < 8 ? 0.15 : -0.08) + (ridgeTile < 6 ? 0.08 : 0.0)));
+                            double cover = density * density * (3 - 2 * density);
+                            if (stage == 8) cover = 1.0;
 
-                            double powder = Math.sin(x * 0.55 + y * 0.19 + variant) * 4
-                                    + Math.cos(y * 0.61 - x * 0.25 + variant * 0.6) * 3
-                            int grain = rng.nextInt(5) - 2
-                            boolean softShadow = Math.floorMod(x + y * 2 + variant * 7, 19) < 3
-                            int shade = softShadow ? 5 : 0
-                            // 2 out of the 5 variants have rare light-blue ice crystals (40% of roof pieces).
-                            boolean icy = variant >= 3 && stage >= 5
-                            boolean crystal = icy && (
-                                (x == (variant == 3 ? 4 : 11) && y >= 8 && y <= 11) ||
-                                (x == (variant == 3 ? 5 : 10) && y >= 9 && y <= 10) ||
-                                (x == (variant == 3 ? 12 : 3) && y >= 12 && y <= 13));
-                            boolean iceGlint = crystal && (x + y) % 3 == 0;
-                            int snowR = (int) Math.round(247 + powder + grain - shade)
-                            int snowG = (int) Math.round(249 + powder + grain - shade / 2)
-                            int snowB = (int) Math.round(252 + powder / 2 + grain)
+                            // Deliberately limited pixel palette: readable from a distance.
+                            int tone = grainTile < 2 ? -16 : (grainTile < 5 ? -9 : (grainTile < 9 ? -3 : 2));
+                            if (ridgeTile == 0 || ridgeTile == 1) tone -= 11;
+                            int snowR = 248 + tone;
+                            int snowG = 250 + tone;
+                            int snowB = 254 + tone / 2;
+                            // ALL six variants have icy crystals; each has different
+                            // positions, sizes, silhouettes and blue highlight strength.
+                            int iceX = 2 + Math.floorMod(variant * 7 + name.hashCode(), 11);
+                            int iceY = 3 + Math.floorMod(variant * 3 + name.hashCode(), 8);
+                            int dx = x - iceX, dy = y - iceY;
+                            boolean needle = (Math.abs(dx) <= (variant % 3 == 0 ? 0 : 1)
+                                    && dy >= -1 && dy <= (variant % 2 == 0 ? 3 : 2));
+                            boolean crystalCluster = variant % 2 == 1 && dy == 1 && Math.abs(dx) <= 2;
+                            boolean secondFleck = Math.floorMod(x * 13 + y * 7 + variant * 19, 101) == 0;
+                            boolean crystal = stage >= 3 && (needle || crystalCluster || secondFleck);
                             if (crystal) {
-                                snowR = iceGlint ? 235 : 194
-                                snowG = iceGlint ? 252 : 229
-                                snowB = 255
+                                int strength = 7 + variant * 5;
+                                snowR = 222 - strength + (dx == 0 ? 12 : 0);
+                                snowG = 237 - strength / 3 + (dy == -1 ? 10 : 0);
+                                snowB = 255;
                             }
                             int r = Math.max(0, Math.min(255, Math.round(base[0] * (1.0 - cover) + snowR * cover) as int))
                             int g = Math.max(0, Math.min(255, Math.round(base[1] * (1.0 - cover) + snowG * cover) as int))
