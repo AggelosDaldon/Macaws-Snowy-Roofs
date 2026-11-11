@@ -11,7 +11,9 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.BlockAndTintGetter;
-import net.minecraft.world.level.LevelReader;
+import net.minecraft.client.multiplayer.ClientLevel;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.api.distmarker.Dist;
@@ -33,12 +35,27 @@ import java.util.Map;
  */
 @Mod.EventBusSubscriber(modid = SnowyRoofs.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public final class ClientSnowRenderer {
-    private static final ModelProperty<Boolean> HAS_SNOW = new ModelProperty<>();
+    private static final ModelProperty<Integer> SNOW_LEVEL = new ModelProperty<>();
+    private static final ConcurrentMap<Long, Integer> SNOW = new ConcurrentHashMap<>();
+
+    public static void acceptUpdate(BlockPos pos, int amount) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        if (amount <= 0) SNOW.remove(pos.asLong());
+        else SNOW.put(pos.asLong(), amount);
+        BlockState state = mc.level.getBlockState(pos);
+        mc.level.sendBlockUpdated(pos, state, state, 3);
+        mc.level.getModelDataManager().requestRefresh(pos);
+    }
+
+    public static void clear() { SNOW.clear(); }
 
     @SubscribeEvent
     public static void registerSnowModels(ModelEvent.RegisterAdditional event) {
         for (String name : new String[]{"base_roof", "white_roof", "black_roof", "gray_roof", "light_gray_roof", "thatch", "snow_generic"}) {
-            event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + name + "_snow_anchor"));
+            for (int stage = 1; stage <= 8; stage++) {
+                event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + name + "_snow_" + stage + "_anchor"));
+            }
         }
     }
 
@@ -59,23 +76,20 @@ public final class ClientSnowRenderer {
         @Override
         public ModelData getModelData(BlockAndTintGetter world, BlockPos pos, BlockState state, ModelData existing) {
             ModelData original = super.getModelData(world, pos, state, existing);
-            BlockState above = world.getBlockState(pos.above());
-            boolean exposed = above.isAir() || above.is(Blocks.SNOW) || above.is(Blocks.SNOW_BLOCK);
-            boolean snowBlock = above.is(Blocks.SNOW) || above.is(Blocks.SNOW_BLOCK);
-            boolean cold = (world instanceof LevelReader reader)
-                    ? reader.getBiome(pos).value().coldEnoughToSnow(pos)
-                    : Minecraft.getInstance().level != null && Minecraft.getInstance().level.getBiome(pos).value().coldEnoughToSnow(pos);
-            return original.derive().with(HAS_SNOW, exposed && (snowBlock || cold)).build();
+            return original.derive().with(SNOW_LEVEL, SNOW.getOrDefault(pos.asLong(), 0)).build();
         }
 
         @Override
         public List<BakedQuad> getQuads(@Nullable BlockState state, @Nullable Direction side,
                 RandomSource random, ModelData data, @Nullable RenderType renderType) {
             List<BakedQuad> quads = super.getQuads(state, side, random, data, renderType);
-            if (!Boolean.TRUE.equals(data.get(HAS_SNOW)) || quads.isEmpty()) return quads;
+            Integer stage = data.get(SNOW_LEVEL);
+            if (stage == null || stage <= 0 || quads.isEmpty()) return quads;
             List<BakedQuad> result = new ArrayList<>(quads.size());
             for (BakedQuad quad : quads) {
-                if (quad.getDirection() != Direction.UP) {
+                int packedNormal = quad.getVertices().length >= 8 ? quad.getVertices()[7] : 0;
+                int normalY = (byte) ((packedNormal >> 8) & 255);
+                if (quad.getDirection() != Direction.UP && normalY < 18) {
                     result.add(quad);
                     continue;
                 }
@@ -89,7 +103,7 @@ public final class ClientSnowRenderer {
                     material = "snow_generic";
                 }
                 TextureAtlasSprite snow = Minecraft.getInstance().getTextureAtlas(TextureAtlas.LOCATION_BLOCKS)
-                        .apply(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + material + "_snow"));
+                        .apply(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + material + "_snow_" + stage));
                 int[] vertices = quad.getVertices().clone();
                 for (int corner = 0; corner < 4; corner++) {
                     int i = corner * 8;
