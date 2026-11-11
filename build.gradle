@@ -4,7 +4,7 @@ plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
-version = '1.6.0'
+version = '1.7.0'
 group = 'com.daldon.snowyroofs'
 base { archivesName = 'daldons-snowy-roofs' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -117,6 +117,23 @@ tasks.register('generateSnowTextures') {
                 }
                 javax.imageio.ImageIO.write(image, 'png',
                     new File(directory, 'side_snow_' + stage + '_v' + variant + '.png'))
+                // Thin, staggered trim on the true outer side only.
+                // It is not rendered across stacked inner faces.
+                def thin = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                for (int x = 0; x < 16; x++) {
+                    int irregular = Math.floorMod(x.intdiv(3) + variant * 5 + x * 7, 6)
+                    int lip = Math.max(1, Math.min(4, 1 + stage.intdiv(4) + (irregular == 0 ? 1 : 0)))
+                    if (stage >= 6 && x == Math.floorMod(variant * 7 + 4, 16)) lip += 2
+                    for (int y = 0; y < Math.min(16, lip); y++) {
+                        int shade = Math.floorMod(x * 13 + y * 17 + variant, 9) < 3 ? -15 : -4
+                        int red = Math.max(0, Math.min(255, 247 + shade))
+                        int green = Math.max(0, Math.min(255, 250 + shade))
+                        int blue = Math.max(0, Math.min(255, 255 + shade.intdiv(3)))
+                        thin.setRGB(x, y, (255 << 24) | (red << 16) | (green << 8) | blue)
+                    }
+                }
+                javax.imageio.ImageIO.write(thin, 'png',
+                    new File(directory, 'side_soft_' + stage + '_v' + variant + '.png'))
             }
         }
     }
