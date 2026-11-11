@@ -156,9 +156,7 @@ public final class ClientSnowRenderer {
                     if (attic && isGlass(quad)) {
                         // Keep the transparent glazing fully intact: only an upper fringe.
                         result.add(quad);
-                        if (cutout && isSnowSurface(quad)) {
-                            result.add(atticGlassFringe(quad, stage, variant));
-                        }
+
                     } else if (isSnowSurface(quad)) {
                         result.add(snowTop(quad, stage, variant));
                     } else result.add(quad);
@@ -200,9 +198,15 @@ public final class ClientSnowRenderer {
                     result.add(snowEdge(quad, stage, edgeVariant, true));
                 }
             }
-            // Attic blocks never use side/front overlays. Their upper frame
-            // receives the normal top snow; glass only gets the thin top fringe.
-
+            // Attic glass quads can live on the translucent layer. Preserve
+            // their original textures and add only a transparent snow fringe.
+            if (cutout && attic) {
+                for (BakedQuad quad : super.getQuads(state, side, random, data, null)) {
+                    if (isGlass(quad) && isSnowSurface(quad)) {
+                        result.add(atticGlassFringe(quad, stage, variant));
+                    }
+                }
+            }
             return result;
         }
 
