@@ -74,12 +74,12 @@ public final class ClientSnowRenderer {
         @Override
         public ModelData getModelData(BlockAndTintGetter world, BlockPos pos, BlockState state, ModelData existing) {
             ModelData original = super.getModelData(world, pos, state, existing);
-            // Five stable texture variations: 3 snow / 2 with small icy crystals (40%).
+            // Six stable snow variations with icy crystals on every roof.
             long mix = pos.asLong();
             mix ^= (mix >>> 33);
             mix *= 0xff51afd7ed558ccdL;
             mix ^= (mix >>> 33);
-            int variant = Math.floorMod((int)(mix ^ (mix >>> 32)), 5);
+            int variant = Math.floorMod((int)(mix ^ (mix >>> 32)), 6);
             return original.derive()
                     .with(SNOW_LEVEL, SNOW.getOrDefault(pos.asLong(), 0))
                     .with(SNOW_VARIANT, variant).build();
