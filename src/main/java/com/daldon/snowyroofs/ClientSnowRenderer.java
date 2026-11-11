@@ -45,7 +45,6 @@ public final class ClientSnowRenderer {
         else SNOW.put(pos.asLong(), amount);
         BlockState state = mc.level.getBlockState(pos);
         mc.level.sendBlockUpdated(pos, state, state, 3);
-        mc.level.getModelDataManager().requestRefresh(pos);
     }
 
     public static void clear() { SNOW.clear(); }
