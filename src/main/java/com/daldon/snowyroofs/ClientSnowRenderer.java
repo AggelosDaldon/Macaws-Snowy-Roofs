@@ -112,19 +112,27 @@ public final class ClientSnowRenderer {
             List<BakedQuad> result = new ArrayList<>();
             if (!cutout || originalCutout) {
                 for (BakedQuad quad : originalQuads) {
-                    if (quad.getDirection() == Direction.UP) result.add(snowTop(quad, stage, variant));
+                    if (isSnowSurface(quad)) result.add(snowTop(quad, stage, variant));
                     else result.add(quad);
                 }
             }
             if (cutout) {
                 // Front and side faces use different stable patterns and snow drops.
                 for (BakedQuad quad : originalQuads) {
-                    if (!quad.getDirection().getAxis().isHorizontal()) continue;
+                    if (!quad.getDirection().getAxis().isHorizontal() || isSnowSurface(quad)) continue;
                     int sideVariant = (variant * 2 + (quad.getDirection().ordinal() & 1)) % 12;
                     result.add(snowEdge(quad, stage, sideVariant));
                 }
             }
             return result;
+        }
+
+        private static boolean isSnowSurface(BakedQuad quad) {
+            if (quad.getDirection() == Direction.UP) return true;
+            int[] data = quad.getVertices();
+            int packedNormal = data.length >= 8 ? data[7] : 0;
+            int normalY = (byte) ((packedNormal >> 8) & 255);
+            return normalY > 18;
         }
 
         private static TextureAtlasSprite sprite(String name) {
@@ -154,6 +162,13 @@ public final class ClientSnowRenderer {
                 top = Math.max(top, y);
                 bottom = Math.min(bottom, y);
             }
+            float minU = Float.MAX_VALUE, maxU = -Float.MAX_VALUE;
+            for (int n = 0; n < 4; n++) {
+                float axisCoord = Float.intBitsToFloat(vertices[n * 8 +
+                    (quad.getDirection().getAxis() == Direction.Axis.X ? 2 : 0)]);
+                minU = Math.min(minU, axisCoord);
+                maxU = Math.max(maxU, axisCoord);
+            }
             for (int n = 0; n < 4; n++) {
                 int offset = n * 8;
                 float x = Float.intBitsToFloat(vertices[offset]);
@@ -165,9 +180,9 @@ public final class ClientSnowRenderer {
                 z += direction.getStepZ() * .002f;
                 vertices[offset] = Float.floatToRawIntBits(x);
                 vertices[offset + 2] = Float.floatToRawIntBits(z);
-                float u = (direction.getAxis() == Direction.Axis.X ? z : x);
+                float axisCoord = (direction.getAxis() == Direction.Axis.X ? z : x);
+                float u = (axisCoord - minU) / Math.max(.0625f, maxU - minU);
                 float v = (top - y) / Math.max(.0625f, top - bottom);
-                u = u - (float) Math.floor(u);
                 // Per-face patterned stripes; not a whole white facade.
                 vertices[offset + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
                 vertices[offset + 5] = Float.floatToRawIntBits(snow.getV0() + Math.min(1f, v) * (snow.getV1() - snow.getV0()));
