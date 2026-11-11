@@ -36,6 +36,7 @@ import java.util.Map;
 @Mod.EventBusSubscriber(modid = SnowyRoofs.MOD_ID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
 public final class ClientSnowRenderer {
     private static final ModelProperty<Integer> SNOW_LEVEL = new ModelProperty<>();
+    private static final ModelProperty<Integer> SNOW_VARIANT = new ModelProperty<>();
     private static final ConcurrentMap<Long, Integer> SNOW = new ConcurrentHashMap<>();
 
     public static void acceptUpdate(BlockPos pos, int amount) {
@@ -73,7 +74,15 @@ public final class ClientSnowRenderer {
         @Override
         public ModelData getModelData(BlockAndTintGetter world, BlockPos pos, BlockState state, ModelData existing) {
             ModelData original = super.getModelData(world, pos, state, existing);
-            return original.derive().with(SNOW_LEVEL, SNOW.getOrDefault(pos.asLong(), 0)).build();
+            // Five stable texture variations: 3 snow / 2 with small icy crystals (40%).
+            long mix = pos.asLong();
+            mix ^= (mix >>> 33);
+            mix *= 0xff51afd7ed558ccdL;
+            mix ^= (mix >>> 33);
+            int variant = Math.floorMod((int)(mix ^ (mix >>> 32)), 5);
+            return original.derive()
+                    .with(SNOW_LEVEL, SNOW.getOrDefault(pos.asLong(), 0))
+                    .with(SNOW_VARIANT, variant).build();
         }
 
         @Override
@@ -81,6 +90,8 @@ public final class ClientSnowRenderer {
                 RandomSource random, ModelData data, @Nullable RenderType renderType) {
             List<BakedQuad> quads = super.getQuads(state, side, random, data, renderType);
             Integer stage = data.get(SNOW_LEVEL);
+            Integer variant = data.get(SNOW_VARIANT);
+            if (variant == null) variant = 0;
             if (stage == null || stage <= 0 || quads.isEmpty()) return quads;
             List<BakedQuad> result = new ArrayList<>(quads.size());
             for (BakedQuad quad : quads) {
@@ -100,7 +111,7 @@ public final class ClientSnowRenderer {
                     material = "snow_generic";
                 }
                 TextureAtlasSprite snow = Minecraft.getInstance().getTextureAtlas(TextureAtlas.LOCATION_BLOCKS)
-                        .apply(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + material + "_snow_" + stage));
+                        .apply(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + material + "_snow_" + stage + "_v" + variant));
                 int[] vertices = quad.getVertices().clone();
                 for (int corner = 0; corner < 4; corner++) {
                     int i = corner * 8;
