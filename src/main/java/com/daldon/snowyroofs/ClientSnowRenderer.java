@@ -58,6 +58,7 @@ public final class ClientSnowRenderer {
             event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + name + "_snow_anchor"));
         }
         event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/side_snow_anchor"));
+        event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/side_soft_anchor"));
     }
 
     @SubscribeEvent
