@@ -162,39 +162,21 @@ public final class ClientSnowRenderer {
                     } else result.add(quad);
                 }
             }
-            if (cutout && steep && !attic) {
-                // Steep 45-degree roofs: the lower edge of each sloping panel
-                // gets its own dripping fringe, rather than a thin timber stripe.
+            if (cutout && !attic && (steep || topRoof)) {
+                // Never use FACING or PART to guess which side is the eave.
+                // All rotations are already baked into the actual sloping quads.
+                // Only their genuine lowest edge gets a snow overhang.
                 for (BakedQuad quad : originalQuads) {
-                    if (!isSnowSurface(quad)) continue;
-                    BakedQuad fringe = steepEaveDrip(quad, stage, variant, outward);
-                    if (fringe != null) result.add(fringe);
+                    if (!isSnowSurface(quad) || isGlass(quad)) continue;
+                    BakedQuad drip = slopeEaveDrip(quad, stage, variant);
+                    if (drip != null) result.add(drip);
                 }
             }
-            if (cutout && !attic && !steep) {
+            if (cutout && !attic && !steep && !topRoof) {
+                // Ordinary roof: front eave only. No side layering.
                 for (BakedQuad quad : originalQuads) {
-                    Direction face = quad.getDirection();
-                    if (!face.getAxis().isHorizontal() || isSnowSurface(quad) || isGlass(quad)) continue;
-                    if (topRoof) {
-                        // Macaw's top pieces are rotated via the PART property.
-                        // Do not put snow on the long sloped SIDES of the ridge.
-                        int rotation = topRotation(roofPart);
-                        Direction gableAxis = rotation == 90 || rotation == 270
-                                ? Direction.EAST : Direction.SOUTH;
-                        if (face.getAxis() != gableAxis.getAxis()) continue;
-                        if (roofPart.contains("end") || roofPart.contains("outer")) {
-                            Direction cap = switch (rotation) {
-                                case 90 -> Direction.WEST;
-                                case 180 -> Direction.NORTH;
-                                case 270 -> Direction.EAST;
-                                default -> Direction.SOUTH;
-                            };
-                            if (face != cap) continue;
-                        }
-                    } else if (face != outward) {
-                        continue;
-                    }
-                    int edgeVariant = Math.floorMod(variant * 2 + face.ordinal() * 3, 12);
+                    if (quad.getDirection() != outward || isSnowSurface(quad) || isGlass(quad)) continue;
+                    int edgeVariant = Math.floorMod(variant * 2 + quad.getDirection().ordinal() * 3, 12);
                     result.add(snowEdge(quad, stage, edgeVariant, true));
                 }
             }
@@ -217,8 +199,7 @@ public final class ClientSnowRenderer {
             return 0;
         }
 
-        private static BakedQuad steepEaveDrip(BakedQuad source, int stage, int variant, Direction outward) {
-            // Follow the low end of each *real* rotated Macaw's steep surface.
+        private static BakedQuad slopeEaveDrip(BakedQuad source, int stage, int variant) {
             int[] src = source.getVertices();
             if (src.length < 32) return null;
             float[] x = new float[4], y = new float[4], z = new float[4];
@@ -227,34 +208,61 @@ public final class ClientSnowRenderer {
                 y[i] = Float.intBitsToFloat(src[i * 8 + 1]);
                 z[i] = Float.intBitsToFloat(src[i * 8 + 2]);
             }
-            int a = -1, b = -1;
-            float best = Float.MAX_VALUE;
-            for (int i = 0; i < 4; i++) {
-                int j = (i + 1) % 4;
-                float dx = x[i] - x[j], dz = z[i] - z[j];
-                if ((dx * dx + dz * dz) < .22f * .22f) continue;
-                float score = y[i] + y[j] + Math.abs(y[i] - y[j]);
-                if (score < best) { best = score; a = i; b = j; }
+
+            // There are two possible pairs of opposite edges in a baked quad.
+            // Find which pair has a genuine height difference: its LOWER edge
+            // is the eave, regardless of roof block orientation or 22.5/45 degree rotation.
+            int a = -1, b = -1, hiA = -1, hiB = -1;
+            float bestRise = .075f;
+            int[][] pairs = {{0,1,2,3},{1,2,3,0}};
+            for (int[] p : pairs) {
+                float ya = (y[p[0]] + y[p[1]]) * .5f;
+                float yb = (y[p[2]] + y[p[3]]) * .5f;
+                float rise = Math.abs(ya - yb);
+                if (rise <= bestRise) continue;
+                int l0 = ya < yb ? p[0] : p[2];
+                int l1 = ya < yb ? p[1] : p[3];
+                int h0 = ya < yb ? p[2] : p[0];
+                int h1 = ya < yb ? p[3] : p[1];
+                float dx = x[l1] - x[l0], dz = z[l1] - z[l0];
+                // Ignore tiny bevels and vertical/diagonal edges of structural details.
+                if (dx * dx + dz * dz < .26f * .26f) continue;
+                if (Math.abs(y[l1] - y[l0]) > .10f) continue;
+                a = l0; b = l1; hiA = h0; hiB = h1; bestRise = rise;
             }
             if (a < 0) return null;
 
-            int[] vertices = src.clone();
-            float depth = .12f + .21f * stage / 8f;
-            float[] px = { x[a], x[b], x[b], x[a] };
-            float[] py = { y[a], y[b], y[b] - depth, y[a] - depth };
-            float[] pz = { z[a], z[b], z[b], z[a] };
-            TextureAtlasSprite snow = sprite("steep_drip_" + stage + "_v" + variant);
+            // Move slightly OUT from the surface toward its actual lower edge.
+            float lowX = (x[a] + x[b]) * .5f, lowZ = (z[a] + z[b]) * .5f;
+            float highX = (x[hiA] + x[hiB]) * .5f, highZ = (z[hiA] + z[hiB]) * .5f;
+            float ox = lowX - highX, oz = lowZ - highZ;
+            float len = (float)Math.sqrt(ox * ox + oz * oz);
+            if (len < .06f) return null;
+            ox = ox / len * .004f;
+            oz = oz / len * .004f;
+
+            float depth = .07f + .24f * stage / 8f;
+            int[] data = src.clone();
+            float[] xx = {x[a], x[b], x[b], x[a]};
+            float[] yy = {y[a], y[b], y[b] - depth, y[a] - depth};
+            float[] zz = {z[a], z[b], z[b], z[a]};
+            int textureVariant = Math.floorMod(variant + (int)(lowX * 11 + lowZ * 23), 6);
+            TextureAtlasSprite snow = sprite("steep_drip_" + stage + "_v" + textureVariant);
             for (int i = 0; i < 4; i++) {
-                int v = i * 8;
-                vertices[v] = Float.floatToRawIntBits(px[i] + outward.getStepX() * .004f);
-                vertices[v + 1] = Float.floatToRawIntBits(py[i]);
-                vertices[v + 2] = Float.floatToRawIntBits(pz[i] + outward.getStepZ() * .004f);
-                float u = (i == 0 || i == 3) ? 0f : 1f;
-                float uv = i < 2 ? 0f : 1f;
-                vertices[v + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
-                vertices[v + 5] = Float.floatToRawIntBits(snow.getV0() + uv * (snow.getV1() - snow.getV0()));
+                int at = i * 8;
+                data[at] = Float.floatToRawIntBits(xx[i] + ox);
+                data[at + 1] = Float.floatToRawIntBits(yy[i]);
+                data[at + 2] = Float.floatToRawIntBits(zz[i] + oz);
+                float u = i == 0 || i == 3 ? 0f : 1f;
+                float v = i < 2 ? 0f : 1f;
+                data[at + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
+                data[at + 5] = Float.floatToRawIntBits(snow.getV0() + v * (snow.getV1() - snow.getV0()));
             }
-            return new BakedQuad(vertices, -1, outward, snow, false);
+            float ax = x[b] - x[a], az = z[b] - z[a];
+            Direction orientation = Math.abs(ax) > Math.abs(az)
+                    ? (oz > 0 ? Direction.SOUTH : Direction.NORTH)
+                    : (ox > 0 ? Direction.EAST : Direction.WEST);
+            return new BakedQuad(data, -1, orientation, snow, false);
         }
 
         private static boolean isGlass(BakedQuad quad) {
