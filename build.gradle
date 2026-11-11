@@ -49,9 +49,9 @@ tasks.register('generateSnowTextures') {
                         for (int x = 0; x < 16; x++) {
                             // Crisp pixel clusters with high contrast; no blur or antialiasing.
                             // Each variant has a unique ridge, packed snowgrain and ice pattern.
-                            int grainTile = Math.floorMod((x / 2) * 11 + (y / 2) * 17 + variant * 23 + name.hashCode(), 13);
+                            int grainTile = Math.floorMod(x.intdiv(2) * 11 + y.intdiv(2) * 17 + variant * 23 + name.hashCode(), 13);
                             int ridgeTile = Math.floorMod(x * 3 + y * 2 + variant * 7, 17);
-                            int patch = Math.floorMod((x / 3) * 19 + (y / 3) * 29 + variant * 11, 23);
+                            int patch = Math.floorMod(x.intdiv(3) * 19 + y.intdiv(3) * 29 + variant * 11, 23);
                             double density = Math.max(0.0, Math.min(1.0, (stage - 1) / 7.0 + 0.18
                                 + (patch < 8 ? 0.15 : -0.08) + (ridgeTile < 6 ? 0.08 : 0.0)));
                             double cover = density * density * (3 - 2 * density);
