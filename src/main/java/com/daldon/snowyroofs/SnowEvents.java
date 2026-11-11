@@ -77,12 +77,12 @@ public final class SnowEvents {
         SnowStorage data = SnowStorage.get(level);
         for (ServerPlayer player : level.players()) {
             BlockPos origin = player.blockPosition();
-            // 24 sampled columns per player, allowing dense roofing to accumulate gradually.
-            for (int i = 0; i < 24; i++) {
-                int x = origin.getX() + level.random.nextInt(33) - 16;
+            // 192 sampled columns per player, allowing dense roofing to accumulate gradually.
+            for (int i = 0; i < 192; i++) {
+                int x = origin.getX() + level.random.nextInt(25) - 12;
                 int z = origin.getZ() + level.random.nextInt(33) - 16;
                 int y = origin.getY() + level.random.nextInt(17) - 8;
-                for (int dy = 0; dy < 9; dy++) {
+                for (int dy = 0; dy < 17; dy++) {
                     BlockPos p = new BlockPos(x, y + dy, z);
                     if (!level.hasChunkAt(p) || !isRoof(level.getBlockState(p))) continue;
                     if (!level.getBlockState(p.above()).isAir() || !level.canSeeSky(p.above())) continue;
