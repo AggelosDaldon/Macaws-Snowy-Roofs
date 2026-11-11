@@ -4,7 +4,7 @@ plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
-version = '1.1.0'
+version = '1.2.0'
 group = 'com.daldon.snowyroofs'
 base { archivesName = 'daldons-snowy-roofs' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -43,21 +43,29 @@ tasks.register('generateSnowTextures') {
         types.each { name, base ->
             for (int stage = 1; stage <= 8; stage++) {
                 def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
-                def rng = new java.util.Random(name.hashCode())
+                def rng = new java.util.Random(name.hashCode() * 31L + 857L)
                 for (int y = 0; y < 16; y++) {
                     for (int x = 0; x < 16; x++) {
-                        int grain = rng.nextInt(27) - 13
-                        // Vary density across both axes, while later stages remain progressively snowier.
-                        int patch = Math.floorMod(x * 37 + y * 17 + (x * y * 7) + name.hashCode(), 83)
-                        double snow = patch < stage * 10 + 3 ? 0.96 : (stage >= 6 ? 0.18 : 0.02)
-                        int r = Math.max(0, Math.min(255, Math.round(base[0] * (1.0 - snow) + (232 + grain) * snow) as int))
-                        int g = Math.max(0, Math.min(255, Math.round(base[1] * (1.0 - snow) + (240 + grain) * snow) as int))
-                        int b = Math.max(0, Math.min(255, Math.round(base[2] * (1.0 - snow) + (249 + grain) * snow) as int))
-                        if (snow > 0.8 && Math.floorMod(x * 11 + y * 19, 31) == 0) {
-                            r = Math.min(255, r + 12)
-                            g = Math.min(255, g + 12)
-                            b = Math.min(255, b + 6)
-                        }
+                        // Smooth snowy-white finish, similar to classic vanilla snow:
+                        // subtle gray-blue depth, gentle variation and tiny icy highlights.
+                        double wave = (Math.sin(x * 0.83 + y * 0.28) +
+                                       Math.cos(y * 0.67 - x * 0.21)) * 0.14
+                        double detail = (rng.nextInt(9) - 4) / 50.0
+                        double mask = Math.max(0, Math.min(1, (stage - 1) / 7.0 +
+                                         0.16 + wave + detail))
+                        double smooth = mask * mask * (3 - 2 * mask)
+                        // Stage 8 is complete snow, with no bare-roof holes.
+                        if (stage == 8) smooth = 1.0
+                        int tone = (int) Math.round((Math.sin(x * 0.55 + y * 0.3) +
+                                                     Math.cos(y * 0.57)) * 2.2)
+                        int edgeShade = y >= 13 ? 6 : (y >= 10 ? 3 : 0)
+                        int sparkle = (stage >= 5 && Math.floorMod(x * 19 + y * 29, 73) == 0) ? 7 : 0
+                        int whiteR = 248 + tone - edgeShade + sparkle
+                        int whiteG = 250 + tone - edgeShade + sparkle
+                        int whiteB = 252 + tone - (edgeShade / 2) + sparkle
+                        int r = Math.max(0, Math.min(255, Math.round(base[0] * (1.0 - smooth) + whiteR * smooth) as int))
+                        int g = Math.max(0, Math.min(255, Math.round(base[1] * (1.0 - smooth) + whiteG * smooth) as int))
+                        int b = Math.max(0, Math.min(255, Math.round(base[2] * (1.0 - smooth) + whiteB * smooth) as int))
                         image.setRGB(x, y, (255 << 24) | (r << 16) | (g << 8) | b)
                     }
                 }
