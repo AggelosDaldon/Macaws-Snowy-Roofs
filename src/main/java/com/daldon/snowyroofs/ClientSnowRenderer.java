@@ -53,9 +53,7 @@ public final class ClientSnowRenderer {
     @SubscribeEvent
     public static void registerSnowModels(ModelEvent.RegisterAdditional event) {
         for (String name : new String[]{"base_roof", "white_roof", "black_roof", "gray_roof", "light_gray_roof", "thatch", "snow_generic"}) {
-            for (int stage = 1; stage <= 8; stage++) {
-                event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + name + "_snow_" + stage + "_anchor"));
-            }
+            event.register(new ResourceLocation(SnowyRoofs.MOD_ID, "block/" + name + "_snow_anchor"));
         }
     }
 
