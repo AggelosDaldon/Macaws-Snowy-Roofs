@@ -4,7 +4,7 @@ plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
-version = '1.0.0'
+version = '1.1.0'
 group = 'com.daldon.snowyroofs'
 base { archivesName = 'daldons-snowy-roofs' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -41,19 +41,28 @@ tasks.register('generateSnowTextures') {
             snow_generic: [225, 231, 240]
         ]
         types.each { name, base ->
-            def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
-            def rng = new java.util.Random(name.hashCode())
-            for (int y = 0; y < 16; y++) {
-                for (int x = 0; x < 16; x++) {
-                    int grain = rng.nextInt(25) - 12
-                    double depth = 0.80 + (rng.nextInt(13) / 100.0)
-                    int r = Math.max(0, Math.min(255, Math.round(base[0] * (1.0 - depth) + (234 + grain) * depth) as int))
-                    int g = Math.max(0, Math.min(255, Math.round(base[1] * (1.0 - depth) + (242 + grain) * depth) as int))
-                    int b = Math.max(0, Math.min(255, Math.round(base[2] * (1.0 - depth) + (250 + grain) * depth) as int))
-                    image.setRGB(x, y, (255 << 24) | (r << 16) | (g << 8) | b)
+            for (int stage = 1; stage <= 8; stage++) {
+                def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                def rng = new java.util.Random(name.hashCode())
+                for (int y = 0; y < 16; y++) {
+                    for (int x = 0; x < 16; x++) {
+                        int grain = rng.nextInt(27) - 13
+                        // Vary density across both axes, while later stages remain progressively snowier.
+                        int patch = Math.floorMod(x * 37 + y * 17 + (x * y * 7) + name.hashCode(), 83)
+                        double snow = patch < stage * 10 + 3 ? 0.96 : (stage >= 6 ? 0.18 : 0.02)
+                        int r = Math.max(0, Math.min(255, Math.round(base[0] * (1.0 - snow) + (232 + grain) * snow) as int))
+                        int g = Math.max(0, Math.min(255, Math.round(base[1] * (1.0 - snow) + (240 + grain) * snow) as int))
+                        int b = Math.max(0, Math.min(255, Math.round(base[2] * (1.0 - snow) + (249 + grain) * snow) as int))
+                        if (snow > 0.8 && Math.floorMod(x * 11 + y * 19, 31) == 0) {
+                            r = Math.min(255, r + 12)
+                            g = Math.min(255, g + 12)
+                            b = Math.min(255, b + 6)
+                        }
+                        image.setRGB(x, y, (255 << 24) | (r << 16) | (g << 8) | b)
+                    }
                 }
+                javax.imageio.ImageIO.write(image, 'png', new File(directory, name + '_snow_' + stage + '.png'))
             }
-            javax.imageio.ImageIO.write(image, 'png', new File(directory, name + '_snow.png'))
         }
     }
 }
