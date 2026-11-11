@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "daldonssnowyroofs:block/base_roof_snow"
+  }
+}
