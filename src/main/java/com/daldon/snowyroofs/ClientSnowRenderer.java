@@ -120,8 +120,11 @@ public final class ClientSnowRenderer {
                 return super.getQuads(state, side, random, data, renderType);
             }
             if (variant == null) variant = 0;
-            Direction outward = data.get(ROOF_FACING);
-            if (outward == null) outward = Direction.NORTH;
+            Direction facing = data.get(ROOF_FACING);
+            if (facing == null) facing = Direction.NORTH;
+            // Macaw's roof model climbs toward its FACING direction.
+            // The visible lower eave is the OPPOSITE direction.
+            Direction outward = facing.getOpposite();
 
             // Original roof geometry stays untouched. Snow on vertical sides is
             // a second cutout quad, offset slightly to prevent z-fighting.
@@ -157,7 +160,9 @@ public final class ClientSnowRenderer {
                     if (attic && isGlass(quad)) continue;
                     if (face == outward.getOpposite()) continue;
                     boolean front = face == outward;
-                    if (!front && highest - highestY(quad) > .15f) continue;
+                    // Follow each actual inclined side element, instead of only
+                    // painting the one highest face of the whole block.
+                    if (!front && highestY(quad) < .20f) continue;
                     int sideVariant = Math.floorMod(variant * 2 + face.ordinal() * 3, 12);
                     result.add(snowEdge(quad, stage, sideVariant, front));
                 }
@@ -234,40 +239,73 @@ public final class ClientSnowRenderer {
         }
 
         private static BakedQuad snowEdge(BakedQuad quad, int stage, int variant, boolean front) {
-            // Project the edge texture with V=0 at the upper rim of this face.
+            // Use the real baked quad geometry, including Macaw's 22.5 degree
+            // rotations. Select the *upper sloping EDGE* of the face, and form
+            // a narrow band inside that surface. It follows the slope exactly.
+            int[] original = quad.getVertices();
+            if (original.length < 32) return quad;
+            int[] vertices = original.clone();
+
+            float[] x = new float[4], y = new float[4], z = new float[4];
+            for (int i = 0; i < 4; i++) {
+                int at = i * 8;
+                x[i] = Float.intBitsToFloat(vertices[at]);
+                y[i] = Float.intBitsToFloat(vertices[at + 1]);
+                z[i] = Float.intBitsToFloat(vertices[at + 2]);
+            }
+
+            // Cyclic quad: evaluate its two pairs of opposite edges.
+            // The pair with the larger altitude difference runs across
+            // the panel's vertical dimension, even when the upper edge slopes.
+            float deltaA = Math.abs((y[0] + y[1]) - (y[2] + y[3]));
+            float deltaB = Math.abs((y[1] + y[2]) - (y[3] + y[0]));
+            int top0, top1, bottom0, bottom1;
+            if (deltaA >= deltaB) {
+                if (y[0] + y[1] >= y[2] + y[3]) {
+                    top0 = 0; top1 = 1; bottom0 = 3; bottom1 = 2;
+                } else {
+                    top0 = 3; top1 = 2; bottom0 = 0; bottom1 = 1;
+                }
+            } else {
+                if (y[1] + y[2] >= y[3] + y[0]) {
+                    top0 = 1; top1 = 2; bottom0 = 0; bottom1 = 3;
+                } else {
+                    top0 = 0; top1 = 3; bottom0 = 1; bottom1 = 2;
+                }
+            }
+
+            // Preserve each top vertex unchanged and pull its corresponding
+            // lower vertex toward it. No horizontal floating overlays.
+            float faceHeight = Math.abs((y[top0] + y[top1] - y[bottom0] - y[bottom1]) * .5f);
+            if (faceHeight < .015f) return quad;
+            float rimSize = (front ? .18f : .085f) * (0.45f + 0.55f * stage / 8f);
+            float fraction = Math.min(1f, rimSize / faceHeight);
+
+            int[] tops = {top0, top1};
+            int[] bottoms = {bottom0, bottom1};
             TextureAtlasSprite snow = sprite((front ? "side_snow_" : "side_soft_") + stage + "_v" + variant);
-            int[] vertices = quad.getVertices().clone();
-            float top = -Float.MAX_VALUE;
-            float bottom = Float.MAX_VALUE;
-            for (int n = 0; n < 4; n++) {
-                float y = Float.intBitsToFloat(vertices[n * 8 + 1]);
-                top = Math.max(top, y);
-                bottom = Math.min(bottom, y);
-            }
-            float minU = Float.MAX_VALUE, maxU = -Float.MAX_VALUE;
-            for (int n = 0; n < 4; n++) {
-                float axisCoord = Float.intBitsToFloat(vertices[n * 8 +
-                    (quad.getDirection().getAxis() == Direction.Axis.X ? 2 : 0)]);
-                minU = Math.min(minU, axisCoord);
-                maxU = Math.max(maxU, axisCoord);
-            }
-            for (int n = 0; n < 4; n++) {
-                int offset = n * 8;
-                float x = Float.intBitsToFloat(vertices[offset]);
-                float y = Float.intBitsToFloat(vertices[offset + 1]);
-                float z = Float.intBitsToFloat(vertices[offset + 2]);
-                // Offset along the original face normal without making new solid geometry.
-                Direction direction = quad.getDirection();
-                x += direction.getStepX() * .002f;
-                z += direction.getStepZ() * .002f;
-                vertices[offset] = Float.floatToRawIntBits(x);
-                vertices[offset + 2] = Float.floatToRawIntBits(z);
-                float axisCoord = (direction.getAxis() == Direction.Axis.X ? z : x);
-                float u = (axisCoord - minU) / Math.max(.0625f, maxU - minU);
-                float v = (top - y) / .50f; // fixed block-scale projection; no stretched side stripes
-                // Per-face patterned stripes; not a whole white facade.
-                vertices[offset + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
-                vertices[offset + 5] = Float.floatToRawIntBits(snow.getV0() + Math.min(1f, v) * (snow.getV1() - snow.getV0()));
+
+            for (int j = 0; j < 2; j++) {
+                int ti = tops[j], bi = bottoms[j];
+                float nx = x[ti] + (x[bi] - x[ti]) * fraction;
+                float ny = y[ti] + (y[bi] - y[ti]) * fraction;
+                float nz = z[ti] + (z[bi] - z[ti]) * fraction;
+
+                // Tiny normal offset avoids z-fighting but keeps the original angle.
+                float ox = quad.getDirection().getStepX() * .0018f;
+                float oz = quad.getDirection().getStepZ() * .0018f;
+                int ta = ti * 8, ba = bi * 8;
+                vertices[ta] = Float.floatToRawIntBits(x[ti] + ox);
+                vertices[ta + 2] = Float.floatToRawIntBits(z[ti] + oz);
+                vertices[ba] = Float.floatToRawIntBits(nx + ox);
+                vertices[ba + 1] = Float.floatToRawIntBits(ny);
+                vertices[ba + 2] = Float.floatToRawIntBits(nz + oz);
+
+                float u = j;
+                vertices[ta + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
+                vertices[ta + 5] = Float.floatToRawIntBits(snow.getV0());
+                vertices[ba + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
+                vertices[ba + 5] = Float.floatToRawIntBits(snow.getV1());
             }
             return new BakedQuad(vertices, -1, quad.getDirection(), snow, quad.isShade());
         }
