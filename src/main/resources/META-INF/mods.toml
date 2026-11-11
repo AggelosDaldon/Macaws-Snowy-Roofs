@@ -3,7 +3,7 @@ loaderVersion="[47,)"
 license="All Rights Reserved"
 [[mods]]
 modId="daldonssnowyroofs"
-version="2.0.0"
+version="2.0.1"
 displayName="Macaws Snowy Roofs"
 authors="Daldon"
 description='''Natural snow accumulation, icy trim and manual snow placement on Macaw's Roofs.'''
