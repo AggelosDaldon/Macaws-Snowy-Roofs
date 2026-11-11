@@ -38,6 +38,7 @@ import java.util.Map;
 public final class ClientSnowRenderer {
     private static final ModelProperty<Integer> SNOW_LEVEL = new ModelProperty<>();
     private static final ModelProperty<Integer> SNOW_VARIANT = new ModelProperty<>();
+    private static final ModelProperty<Direction> ROOF_FACING = new ModelProperty<>();
     private static final ConcurrentMap<Long, Integer> SNOW = new ConcurrentHashMap<>();
 
     public static void acceptUpdate(BlockPos pos, int amount) {
@@ -82,9 +83,20 @@ public final class ClientSnowRenderer {
             mix *= 0xff51afd7ed558ccdL;
             mix ^= (mix >>> 33);
             int variant = Math.floorMod((int)(mix ^ (mix >>> 32)), 6);
+            Direction facing = Direction.NORTH;
+            if (state != null) {
+                for (var property : state.getProperties()) {
+                    if (property.getName().equals("facing") && property instanceof net.minecraft.world.level.block.state.properties.DirectionProperty dp) {
+                        Direction candidate = state.getValue(dp);
+                        if (candidate.getAxis().isHorizontal()) facing = candidate;
+                        break;
+                    }
+                }
+            }
             return original.derive()
                     .with(SNOW_LEVEL, SNOW.getOrDefault(pos.asLong(), 0))
-                    .with(SNOW_VARIANT, variant).build();
+                    .with(SNOW_VARIANT, variant)
+                    .with(ROOF_FACING, facing).build();
         }
 
         @Override
@@ -102,6 +114,8 @@ public final class ClientSnowRenderer {
                 return super.getQuads(state, side, random, data, renderType);
             }
             if (variant == null) variant = 0;
+            Direction outward = data.get(ROOF_FACING);
+            if (outward == null) outward = Direction.NORTH;
 
             // Original roof geometry stays untouched. Snow on vertical sides is
             // a second cutout quad, offset slightly to prevent z-fighting.
@@ -117,11 +131,21 @@ public final class ClientSnowRenderer {
                 }
             }
             if (cutout) {
-                // Front and side faces use different stable patterns and snow drops.
+                // The rear faces the room/interior: leave it completely clean.
+                // Side faces receive only a small upper fringe, never stacked stripes.
+                float highest = -Float.MAX_VALUE;
                 for (BakedQuad quad : originalQuads) {
                     if (!quad.getDirection().getAxis().isHorizontal() || isSnowSurface(quad)) continue;
-                    int sideVariant = (variant * 2 + (quad.getDirection().ordinal() & 1)) % 12;
-                    result.add(snowEdge(quad, stage, sideVariant));
+                    highest = Math.max(highest, highestY(quad));
+                }
+                for (BakedQuad quad : originalQuads) {
+                    Direction face = quad.getDirection();
+                    if (!face.getAxis().isHorizontal() || isSnowSurface(quad)) continue;
+                    if (face == outward.getOpposite()) continue;
+                    boolean front = face == outward;
+                    if (!front && highest - highestY(quad) > .15f) continue;
+                    int sideVariant = Math.floorMod(variant * 2 + face.ordinal() * 3, 12);
+                    result.add(snowEdge(quad, stage, sideVariant, front));
                 }
             }
             return result;
@@ -151,9 +175,18 @@ public final class ClientSnowRenderer {
             return remap(quad, sprite(material + "_snow_" + stage + "_v" + variant), false);
         }
 
-        private static BakedQuad snowEdge(BakedQuad quad, int stage, int variant) {
+        private static float highestY(BakedQuad quad) {
+            int[] vertices = quad.getVertices();
+            float top = -Float.MAX_VALUE;
+            for (int n = 0; n < 4; n++) {
+                top = Math.max(top, Float.intBitsToFloat(vertices[n * 8 + 1]));
+            }
+            return top;
+        }
+
+        private static BakedQuad snowEdge(BakedQuad quad, int stage, int variant, boolean front) {
             // Project the edge texture with V=0 at the upper rim of this face.
-            TextureAtlasSprite snow = sprite("side_snow_" + stage + "_v" + variant);
+            TextureAtlasSprite snow = sprite((front ? "side_snow_" : "side_soft_") + stage + "_v" + variant);
             int[] vertices = quad.getVertices().clone();
             float top = -Float.MAX_VALUE;
             float bottom = Float.MAX_VALUE;
@@ -182,7 +215,7 @@ public final class ClientSnowRenderer {
                 vertices[offset + 2] = Float.floatToRawIntBits(z);
                 float axisCoord = (direction.getAxis() == Direction.Axis.X ? z : x);
                 float u = (axisCoord - minU) / Math.max(.0625f, maxU - minU);
-                float v = (top - y) / Math.max(.0625f, top - bottom);
+                float v = (top - y) / .50f; // fixed block-scale projection; no stretched side stripes
                 // Per-face patterned stripes; not a whole white facade.
                 vertices[offset + 4] = Float.floatToRawIntBits(snow.getU0() + u * (snow.getU1() - snow.getU0()));
                 vertices[offset + 5] = Float.floatToRawIntBits(snow.getV0() + Math.min(1f, v) * (snow.getV1() - snow.getV0()));
