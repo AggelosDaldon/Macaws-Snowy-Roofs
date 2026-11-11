@@ -98,7 +98,7 @@ tasks.register('generateSnowTextures') {
                 def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
                 for (int x = 0; x < 16; x++) {
                     int noise = Math.floorMod(x.intdiv(3) * 11 + x * 3 + variant * 17, 7)
-                    int depth = Math.max(1, Math.min(4, 1 + stage.intdiv(4) + (noise == 0 ? 1 : 0)))
+                    int depth = Math.max(1, Math.min(4, 1 + stage.intdiv(4) + (noise < 2 ? 1 : 0)))
                     int drip = Math.floorMod(variant * 5 + 3, 16)
                     if (stage >= 6 && x == drip) depth += 2
                     for (int y = 0; y < Math.min(16, depth); y++) {
@@ -150,12 +150,15 @@ tasks.register('generateSnowTextures') {
             for (int stage = 1; stage <= 8; stage++) {
                 def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
                 for (int x = 0; x < 16; x++) {
-                    int drift = Math.floorMod((x.intdiv(3) * 17 + variant * 13 + x * 5), 7) - 3
-                    int thickness = Math.max(1, Math.min(7, (stage + 2).intdiv(2) + drift.intdiv(2)))
+                    // Every gable has a distinctive, pixel-sharp snow fringe.
+                    int drift = Math.floorMod(x.intdiv(2) * 11 + variant * 17 + x * 3, 9) - 4
+                    int thickness = Math.max(1, Math.min(10, 1 + stage.intdiv(2) + drift.intdiv(2)))
                     int iceColumn = Math.floorMod(variant * 11 + 3, 16)
                     int secondIce = Math.floorMod(variant * 7 + 9, 16)
-                    if (stage >= 5 && x == iceColumn) thickness += 2 + variant % 3
-                    if (stage >= 7 && x == secondIce) thickness += 2
+                    if (stage >= 4 && x == iceColumn) thickness += 2 + variant % 4
+                    if (stage >= 6 && x == secondIce) thickness += 3
+                    if (stage == 8 && Math.floorMod(x + variant * 5, 11) == 0) thickness += 3
+                    thickness = Math.min(15, thickness)
                     for (int y = 0; y < 16; y++) {
                         if (y >= thickness) continue
                         int cluster = Math.floorMod(x * 23 + y.intdiv(2) * 13 + variant * 31, 17)
