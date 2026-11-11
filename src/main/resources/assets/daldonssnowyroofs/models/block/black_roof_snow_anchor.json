@@ -1,6 +1,15 @@
 {
   "parent": "minecraft:block/cube_all",
   "textures": {
-    "all": "daldonssnowyroofs:block/black_roof_snow"
+    "particle": "daldonssnowyroofs:block/black_roof_snow_8",
+    "all": "daldonssnowyroofs:block/black_roof_snow_8",
+    "stage1": "daldonssnowyroofs:block/black_roof_snow_1",
+    "stage2": "daldonssnowyroofs:block/black_roof_snow_2",
+    "stage3": "daldonssnowyroofs:block/black_roof_snow_3",
+    "stage4": "daldonssnowyroofs:block/black_roof_snow_4",
+    "stage5": "daldonssnowyroofs:block/black_roof_snow_5",
+    "stage6": "daldonssnowyroofs:block/black_roof_snow_6",
+    "stage7": "daldonssnowyroofs:block/black_roof_snow_7",
+    "stage8": "daldonssnowyroofs:block/black_roof_snow_8"
   }
 }
