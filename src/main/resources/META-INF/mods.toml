@@ -3,10 +3,10 @@ loaderVersion="[47,)"
 license="All Rights Reserved"
 [[mods]]
 modId="daldonssnowyroofs"
-version="1.0.0"
-displayName="Daldon's Snowy Roofs"
+version="1.7.0"
+displayName="Macaws Snowy Roofs"
 authors="Daldon"
-description='''A lightweight client-side snow cover for Macaw's Roofs in snowy climates.'''
+description='''Natural snow accumulation, icy trim and manual snow placement on Macaw's Roofs.'''
 [[dependencies.daldonssnowyroofs]]
 modId="forge"
 mandatory=true
