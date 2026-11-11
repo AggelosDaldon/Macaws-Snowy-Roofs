@@ -4,7 +4,7 @@ plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
 }
-version = '1.2.0'
+version = '1.3.0'
 group = 'com.daldon.snowyroofs'
 base { archivesName = 'daldons-snowy-roofs' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
@@ -41,35 +41,51 @@ tasks.register('generateSnowTextures') {
             snow_generic: [225, 231, 240]
         ]
         types.each { name, base ->
-            for (int stage = 1; stage <= 8; stage++) {
-                def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
-                def rng = new java.util.Random(name.hashCode() * 31L + 857L)
-                for (int y = 0; y < 16; y++) {
-                    for (int x = 0; x < 16; x++) {
-                        // Smooth snowy-white finish, similar to classic vanilla snow:
-                        // subtle gray-blue depth, gentle variation and tiny icy highlights.
-                        double wave = (Math.sin(x * 0.83 + y * 0.28) +
-                                       Math.cos(y * 0.67 - x * 0.21)) * 0.14
-                        double detail = (rng.nextInt(9) - 4) / 50.0
-                        double mask = Math.max(0, Math.min(1, (stage - 1) / 7.0 +
-                                         0.16 + wave + detail))
-                        double smooth = mask * mask * (3 - 2 * mask)
-                        // Stage 8 is complete snow, with no bare-roof holes.
-                        if (stage == 8) smooth = 1.0
-                        int tone = (int) Math.round((Math.sin(x * 0.55 + y * 0.3) +
-                                                     Math.cos(y * 0.57)) * 2.2)
-                        int edgeShade = y >= 13 ? 6 : (y >= 10 ? 3 : 0)
-                        int sparkle = (stage >= 5 && Math.floorMod(x * 19 + y * 29, 73) == 0) ? 7 : 0
-                        int whiteR = 248 + tone - edgeShade + sparkle
-                        int whiteG = 250 + tone - edgeShade + sparkle
-                        int whiteB = 252 + tone - (edgeShade / 2) + sparkle
-                        int r = Math.max(0, Math.min(255, Math.round(base[0] * (1.0 - smooth) + whiteR * smooth) as int))
-                        int g = Math.max(0, Math.min(255, Math.round(base[1] * (1.0 - smooth) + whiteG * smooth) as int))
-                        int b = Math.max(0, Math.min(255, Math.round(base[2] * (1.0 - smooth) + whiteB * smooth) as int))
-                        image.setRGB(x, y, (255 << 24) | (r << 16) | (g << 8) | b)
+            for (int variant = 0; variant < 5; variant++) {
+                for (int stage = 1; stage <= 8; stage++) {
+                    def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                    def rng = new java.util.Random(name.hashCode() * 31L + variant * 811L + 857L)
+                    for (int y = 0; y < 16; y++) {
+                        for (int x = 0; x < 16; x++) {
+                            // Snow keeps its smooth white appearance; tiny pixel clusters,
+                            // curved powder ridges, fine shadows and rare ice create visible structure.
+                            double ridge = Math.sin((x + variant * 5) * 0.49 + y * 0.18) * 0.14
+                            double drift = Math.cos((y - variant * 3) * 0.43 - x * 0.16) * 0.12
+                            double local = ((Math.floorMod(x * 13 + y * 23 + x * y * 3 + variant * 17, 41) / 40.0) - .5) * .08
+                            double density = Math.max(0, Math.min(1,
+                                (stage - 1) / 7.0 + 0.15 + ridge + drift + local))
+                            double cover = density * density * (3 - 2 * density)
+                            if (stage == 8) cover = 1.0
+
+                            double powder = Math.sin(x * 0.55 + y * 0.19 + variant) * 4
+                                    + Math.cos(y * 0.61 - x * 0.25 + variant * 0.6) * 3
+                            int grain = rng.nextInt(5) - 2
+                            boolean softShadow = Math.floorMod(x + y * 2 + variant * 7, 19) < 3
+                            int shade = softShadow ? 5 : 0
+                            // 2 out of the 5 variants have rare light-blue ice crystals (40% of roof pieces).
+                            boolean icy = variant >= 3 && stage >= 5
+                            boolean crystal = icy && (
+                                (x == (variant == 3 ? 4 : 11) && y >= 8 && y <= 11) ||
+                                (x == (variant == 3 ? 5 : 10) && y >= 9 && y <= 10) ||
+                                (x == (variant == 3 ? 12 : 3) && y >= 12 && y <= 13));
+                            boolean iceGlint = crystal && (x + y) % 3 == 0;
+                            int snowR = (int) Math.round(247 + powder + grain - shade)
+                            int snowG = (int) Math.round(249 + powder + grain - shade / 2)
+                            int snowB = (int) Math.round(252 + powder / 2 + grain)
+                            if (crystal) {
+                                snowR = iceGlint ? 235 : 194
+                                snowG = iceGlint ? 252 : 229
+                                snowB = 255
+                            }
+                            int r = Math.max(0, Math.min(255, Math.round(base[0] * (1.0 - cover) + snowR * cover) as int))
+                            int g = Math.max(0, Math.min(255, Math.round(base[1] * (1.0 - cover) + snowG * cover) as int))
+                            int b = Math.max(0, Math.min(255, Math.round(base[2] * (1.0 - cover) + snowB * cover) as int))
+                            image.setRGB(x, y, (255 << 24) | (r << 16) | (g << 8) | b)
+                        }
                     }
+                    javax.imageio.ImageIO.write(image, 'png',
+                        new File(directory, name + '_snow_' + stage + '_v' + variant + '.png'))
                 }
-                javax.imageio.ImageIO.write(image, 'png', new File(directory, name + '_snow_' + stage + '.png'))
             }
         }
     }
