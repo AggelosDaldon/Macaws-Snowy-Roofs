@@ -241,6 +241,18 @@ public final class ClientSnowRenderer {
             ox = ox / len * .004f;
             oz = oz / len * .004f;
 
+            // The original edge vertex order can be clockwise or counter-clockwise
+            // after rotation. Minecraft culls the back face of cutout quads.
+            // Explicitly make the curtain's winding face the exterior of the eave.
+            // For edge A->B and a downward curtain, its geometric outward normal
+            // is proportional to (dz, 0, -dx).
+            float edgeX = x[b] - x[a];
+            float edgeZ = z[b] - z[a];
+            float windingDot = edgeZ * ox - edgeX * oz;
+            if (windingDot < 0f) {
+                int temp = a; a = b; b = temp;
+            }
+
             float depth = .07f + .24f * stage / 8f;
             int[] data = src.clone();
             float[] xx = {x[a], x[b], x[b], x[a]};
