@@ -20,3 +20,41 @@ repositories { mavenCentral() }
 dependencies { minecraft 'net.minecraftforge:forge:1.20.1-47.4.0' }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
 jar { manifest { attributes(['Specification-Title':'Daldons Snowy Roofs', 'Implementation-Version':project.version]) } }
+
+
+// Generate Minecraft-style 16x16 snowy texture variants as real PNG resources.
+// Keep this in Gradle so the GitHub Actions build packages them in the JAR.
+def snowOutput = layout.buildDirectory.dir('generated/snowy-resources')
+sourceSets.main.resources.srcDir(snowOutput)
+tasks.register('generateSnowTextures') {
+    outputs.dir(snowOutput)
+    doLast {
+        def directory = snowOutput.get().file('assets/daldonssnowyroofs/textures/block').asFile
+        directory.mkdirs()
+        def types = [
+            base_roof: [106, 84, 76],
+            white_roof: [224, 219, 211],
+            black_roof: [59, 60, 65],
+            gray_roof: [119, 118, 118],
+            light_gray_roof: [169, 168, 171],
+            thatch: [142, 116, 72],
+            snow_generic: [225, 231, 240]
+        ]
+        types.each { name, base ->
+            def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            def rng = new java.util.Random(name.hashCode())
+            for (int y = 0; y < 16; y++) {
+                for (int x = 0; x < 16; x++) {
+                    int grain = rng.nextInt(25) - 12
+                    double depth = 0.80 + (rng.nextInt(13) / 100.0)
+                    int r = Math.max(0, Math.min(255, Math.round(base[0] * (1.0 - depth) + (234 + grain) * depth) as int))
+                    int g = Math.max(0, Math.min(255, Math.round(base[1] * (1.0 - depth) + (242 + grain) * depth) as int))
+                    int b = Math.max(0, Math.min(255, Math.round(base[2] * (1.0 - depth) + (250 + grain) * depth) as int))
+                    image.setRGB(x, y, (255 << 24) | (r << 16) | (g << 8) | b)
+                }
+            }
+            javax.imageio.ImageIO.write(image, 'png', new File(directory, name + '_snow.png'))
+        }
+    }
+}
+tasks.named('processResources') { dependsOn('generateSnowTextures') }
