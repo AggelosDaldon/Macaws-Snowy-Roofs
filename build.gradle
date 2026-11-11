@@ -118,6 +118,32 @@ tasks.register('generateSnowTextures') {
             }
         }
 
+        // Steep 45-degree roof panels: long, individual hanging ice fringes.
+        // Render only from their real lower edge, preserving the original roof.
+        for (int variant = 0; variant < 6; variant++) {
+            for (int stage = 1; stage <= 8; stage++) {
+                def image = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+                for (int x = 0; x < 16; x++) {
+                    int stripe = Math.floorMod(x.intdiv(2) * 9 + variant * 13 + stage * 5, 11)
+                    int depth = Math.min(16, Math.max(2,
+                        2 + stage.intdiv(2) + (stripe < 4 ? 2 : 0)
+                        + (x == Math.floorMod(variant * 7 + 3, 16) ? 4 : 0)
+                        + (stage >= 6 && x == Math.floorMod(variant * 5 + 11, 16) ? 3 : 0)))
+                    for (int y = 0; y < depth; y++) {
+                        int shade = Math.floorMod(x * 11 + y.intdiv(2) * 17 + variant * 23, 13)
+                        int red = shade < 4 ? 226 : (shade < 8 ? 243 : 251)
+                        int green = shade < 4 ? 238 : (shade < 8 ? 247 : 252)
+                        int blue = 255
+                        boolean tip = y >= depth - 2 && (x == Math.floorMod(variant * 7 + 3, 16))
+                        if (tip) { red = 182 + variant * 4; green = 223 + variant * 2; }
+                        image.setRGB(x, y, (255 << 24) | (red << 16) | (green << 8) | blue)
+                    }
+                }
+                javax.imageio.ImageIO.write(image, 'png',
+                    new File(directory, 'steep_drip_' + stage + '_v' + variant + '.png'))
+            }
+        }
+
         // Transparent overlay textures for roof edges. Existing wood/stone remains visible.
         // Twelve silhouettes, changing gradually across 8 snow stages.
         for (int variant = 0; variant < 12; variant++) {
