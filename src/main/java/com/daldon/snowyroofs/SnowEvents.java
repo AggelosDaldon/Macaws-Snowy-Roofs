@@ -1,6 +1,7 @@
 package com.daldon.snowyroofs;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -147,6 +148,12 @@ public final class SnowEvents {
                             if (current > 1 && !level.getBiome(roofPos).value().coldEnoughToSnow(roofPos)
                                     && exposed(level, roofPos) && level.random.nextInt(8) == 0) {
                                 update(level, roofPos, Math.max(1, current - 1));
+                                // Subtle melting droplets, emitted only when a stage
+                                // actually melts rather than continuously each tick.
+                                level.sendParticles(ParticleTypes.FALLING_WATER,
+                                        roofPos.getX() + 0.5, roofPos.getY() + 0.95,
+                                        roofPos.getZ() + 0.5,
+                                        3, 0.32, 0.08, 0.32, 0.01);
                             }
                         }
                     }
