@@ -139,10 +139,14 @@ public final class SnowEvents {
                             if (stage != current) update(level, roofPos, stage);
                         } else {
                             starts.remove(key);
-                            // Warm exposed roofs gradually melt; snowy biomes keep their snow.
-                            if (current > 0 && !level.getBiome(roofPos).value().coldEnoughToSnow(roofPos)
+                            // Warm weather gradually reduces the visible snow stages
+                            // (and therefore the icy/drip textures), but NEVER melts
+                            // established roof snow completely. Stage 1 is permanent.
+                            // Only an explicit shovel action (or breaking the roof)
+                            // is allowed to clear the last layer to stage 0.
+                            if (current > 1 && !level.getBiome(roofPos).value().coldEnoughToSnow(roofPos)
                                     && exposed(level, roofPos) && level.random.nextInt(8) == 0) {
-                                update(level, roofPos, current - 1);
+                                update(level, roofPos, Math.max(1, current - 1));
                             }
                         }
                     }
